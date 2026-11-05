@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#2e6b34">
+<title>Captura EVA</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<style>
+*{box-sizing:border-box}
+body{font:16px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#f3f5f1;color:#1d2b1d}
+header{background:#2e6b34;color:#fff;padding:10px 14px}
+header h1{font-size:18px;margin:0}
+#est{font-size:12px;display:block;opacity:.95;margin-top:2px}
+nav{display:flex;position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid #ccd}
+nav button{flex:1;padding:12px 2px;border:0;background:none;font-size:14px;color:#334}
+nav button.on{border-bottom:3px solid #2e6b34;font-weight:700;color:#1d4a22}
+main{padding:10px;max-width:720px;margin:0 auto 80px}
+.card{background:#fff;border-radius:10px;padding:12px;margin-bottom:12px;box-shadow:0 1px 2px #0002}
+h2{font-size:17px;margin:0 0 6px}
+h3{font-size:15px;margin:0}
+.f{display:block;margin:8px 0}
+.f span{display:block;font-size:13px;color:#445;margin-bottom:3px}
+input,select{width:100%;padding:10px;font-size:16px;border:1px solid #9aa;border-radius:8px;background:#fff;color:inherit}
+input[readonly]{background:#eef0ec;color:#556}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btn{padding:12px 16px;border:0;border-radius:8px;background:#2e6b34;color:#fff;font-size:16px;width:100%;margin:6px 0}
+.btn.sec{background:#e3eadf;color:#1d2b1d}
+.btn.red{background:#a33}
+.lnk{background:none;border:0;color:#a33;font-size:14px;padding:6px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.calc{background:#f3f7f1;border-radius:8px;padding:8px;margin-top:8px;font-size:14px}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:2px 0}
+.kv b{font-weight:600}
+.warn{background:#fff3cd;border-left:4px solid #e0a800;padding:6px 8px;margin-top:6px;font-size:13px}
+.inf{background:#e7f1fb;border-left:4px solid #3b82c4;padding:6px 8px;margin-top:6px;font-size:13px}
+.hint{font-size:12px;color:#556;margin:4px 0}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{padding:5px;border-bottom:1px solid #dde;text-align:right}
+td:first-child,th:first-child{text-align:left}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:20px;display:none;z-index:9;max-width:90%;text-align:center}
+.small{font-size:13px;color:#445}
+</style>
+</head>
+<body>
+<header><h1>Captura EVA · Cultivos</h1><span id="est"></span></header>
+<nav>
+  <button data-act="tab" data-v="nuevo">Nuevo</button>
+  <button data-act="tab" data-v="reg">Registros</button>
+  <button data-act="tab" data-v="res">Resumen</button>
+  <button data-act="tab" data-v="aju">Ajustes</button>
+</nav>
+<main id="app"></main>
+<div id="toast"></div>
+<input type="file" id="imp" accept=".json,application/json" style="display:none">
+<script>
+(function(){
+'use strict';
+var KEY='evaCaptura.v1', DKEY='evaCaptura.draft';
+var MEDIOS=['Visita en campo','Llamada telefónica','Asociación o gremio','Técnico / UMATA','Otro'];
+var INFORM=['Productor','Administrador / mayordomo','Técnico de asistencia','Líder de asociación','Otro'];
+var CONF=['Alta','Media','Baja'];
+var ETAPAS=['Preparación del terreno','Siembra / establecimiento','Desarrollo vegetativo','En cosecha','Cosecha terminada'];
+var PRECOSECHA=ETAPAS.slice(0,3);
+var UNID=['kg','atado','bulto','arroba','carga','caja','canasta','tonelada'];
+var AREAU=[['ha','Hectáreas'],['m2','Metros cuadrados'],['cuadra','Cuadras']];
+var storageOk=true, view='nuevo';
+
+function DEF(){return {records:[],lastExport:null,
+ settings:{municipio:'El Cerrito',tecnico:'',tol:50,cuadra:6400},
+ catalog:[
+  {n:'Cebolla de rama (junca)',ref:36.01,nota:'Referencia: UPRA, EVA 2024A, promedio nacional de cebolla de rama. Confirmar con UPRA que la junca se reporta como cebolla de rama.'},
+  {n:'Cebolla de bulbo',ref:22.95,nota:'Referencia: UPRA, EVA 2024A, promedio nacional.'},
+  {n:'Tomate',ref:59.24,nota:'Referencia: UPRA, EVA 2024A, promedio nacional.'}
+ ]};}
+function clone(o){return JSON.parse(JSON.stringify(o));}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+function load(){var s=DEF();try{var r=localStorage.getItem(KEY);if(r){var o=JSON.parse(r);
+  s.records=o.records||[];if(o.catalog&&o.catalog.length)s.catalog=o.catalog;
+  s.settings=Object.assign(s.settings,o.settings||{});s.lastExport=o.lastExport||null;}}catch(e){storageOk=false;}return s;}
+var S=load();
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){storageOk=false;}banner();}
+function saveDraft(){try{localStorage.setItem(DKEY,JSON.stringify(cur));}catch(e){storageOk=false;banner();}}
+function pending(){return S.records.filter(function(r){return !S.lastExport||(r.ts||'')>S.lastExport;}).length;}
+function banner(){var el=document.getElementById('est');
+ if(!storageOk){el.textContent='⚠ Este navegador no guarda datos: exporte después de cada registro';return;}
+ var p=pending();el.textContent=S.records.length+' registros guardados · '+(p?p+' sin respaldo exportado':'todo respaldado');}
+
+/* utilidades */
+function num(v){var x=parseFloat(String(v==null?'':v).trim().replace(',','.'));return isFinite(x)?x:NaN;}
+function fmt(x,d){if(d==null)d=2;return isFinite(x)?x.toLocaleString('es-CO',{maximumFractionDigits:d}):'—';}
+function pd(s){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||'');return m?new Date(+m[1],+m[2]-1,+m[3]):null;}
+function addDays(d,n){var x=new Date(d);x.setDate(x.getDate()+Math.round(n));return x;}
+function iso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function dmy(d){return d?d.toLocaleDateString('es-CO'):'—';}
+function semOf(y,m){return y+(m<6?'A':'B');}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function tol(){var t=num(S.settings.tol);return isFinite(t)&&t>0?t:50;}
+function cuadra(){var t=num(S.settings.cuadra);return isFinite(t)&&t>0?t:6400;}
+
+/* cálculo por lote */
+function areaHa(l){var a=num(l.area);if(!(a>0))return NaN;
+ var k=l.areaU==='m2'?1e-4:l.areaU==='cuadra'?cuadra()/1e4:1;return a*k;}
+function refOf(c){var e=S.catalog.filter(function(x){return x.n===c;})[0];return e&&num(e.ref)>0?e:null;}
+function pesoKg(l){return l.unidad==='kg'?1:l.unidad==='tonelada'?1000:num(l.peso);}
+function calc(l,rec){
+ var o={ha:areaHa(l),flags:[],info:[],sem:{}};
+ var um=num(l.uMes),p=pesoKg(l),cm=num(l.cosMeses),ciclo=num(l.ciclo),fs=pd(l.siembra),hoy=new Date();
+ if(fs){o.semSiembra=semOf(fs.getFullYear(),fs.getMonth());if(fs>hoy)o.flags.push('La fecha de siembra es futura.');}
+ if(!(o.ha>0))o.flags.push('Falta el área del lote.');
+ if(um>=0&&p>0)o.prodMes=um*p;
+ if(o.prodMes!=null&&cm>0){o.prodT=o.prodMes*cm/1000;if(o.ha>0)o.rend=o.prodT/o.ha;}
+ if(fs&&ciclo>=0&&cm>0){
+  o.ini=addDays(fs,ciclo);o.fin=addDays(o.ini,cm*30.4);
+  if(o.prodMes!=null){var n=Math.ceil(cm);
+   for(var i=0;i<n;i++){var mi=o.ini.getMonth()+i,y=o.ini.getFullYear()+Math.floor(mi/12),mo=mi%12;
+    var s=semOf(y,mo),frac=Math.min(1,cm-i);o.sem[s]=(o.sem[s]||0)+o.prodMes*frac/1000;}}
+  if(l.etapa==='En cosecha'&&o.ini>hoy)o.flags.push('Dice «En cosecha», pero según la fecha de siembra y los días al primer corte la cosecha empieza en el futuro.');
+ }
+ if(o.rend!=null){var r=refOf(rec.cultivo);if(r){var ref=num(r.ref),t=tol()/100;
+  if(o.rend>ref*(1+t)||o.rend<ref*(1-t))o.flags.push('Rendimiento de '+fmt(o.rend)+' t/ha: se aleja más de '+tol()+'% de la referencia ('+fmt(ref)+' t/ha). Revise unidad, peso o área.');}}
+ var ct=num(l.cosTotal),cmes=num(l.cosMes);
+ if(ct>0&&cmes>0&&cm>0){var esp=cmes*cm;if(Math.abs(esp-ct)>Math.max(2,0.25*ct))o.flags.push('Cosechas por mes × meses ('+fmt(esp,1)+') no cuadra con las cosechas del ciclo ('+fmt(ct,0)+').');}
+ if(PRECOSECHA.indexOf(l.etapa)>=0&&o.prodT!=null)o.info.push('Lote aún sin cosechar: la producción es proyectada. No cuenta como área cosechada.');
+ return o;}
+
+/* estado del formulario */
+function newLote(c){return {area:'',areaU:'ha',siembra:'',etapa:'',ciclo:'',cosMeses:'',cosMes:'',cosTotal:'',uMes:'',unidad:/rama|junca/i.test(c||'')?'atado':'kg',peso:'',obs:''};}
+function newRec(p){p=p||{};return {id:uid(),fecha:p.fecha||iso(new Date()),medio:p.medio||'',informante:'',vereda:p.vereda||'',confianza:'',cultivo:p.cultivo||'',obs:'',lotes:[newLote(p.cultivo)]};}
+var cur;try{var dr=localStorage.getItem(DKEY);cur=dr?JSON.parse(dr):newRec();}catch(e){cur=newRec();}
+if(!cur||!cur.lotes)cur=newRec();
+
+/* generadores de HTML */
+function inp(lab,k,v,o){o=o||{};
+ var t=o.t==='date'?'type="date"':o.t==='num'?'type="text" inputmode="decimal" autocomplete="off"':'type="text" autocomplete="off"';
+ return '<label class="f"><span>'+lab+'</span><input '+t+' data-k="'+k+'"'+(o.i!=null?' data-i="'+o.i+'"':'')+' value="'+esc(v)+'"'+(o.ph?' placeholder="'+esc(o.ph)+'"':'')+(o.ro?' readonly':'')+'></label>';}
+function sel(lab,k,opts,v,o){o=o||{};
+ var h='<label class="f"><span>'+lab+'</span><select data-k="'+k+'"'+(o.i!=null?' data-i="'+o.i+'"':'')+'><option value="">Seleccione…</option>';
+ opts.forEach(function(x){var val=Array.isArray(x)?x[0]:x,lb=Array.isArray(x)?x[1]:x;
+  h+='<option value="'+esc(val)+'"'+(val===v?' selected':'')+'>'+esc(lb)+'</option>';});
+ return h+'</select></label>';}
+function kv(a,b){return '<div class="kv"><b>'+a+'</b><span>'+b+'</span></div>';}
+
+function loteHtml(l,i){
+ var fijo=(l.unidad==='kg'||l.unidad==='tonelada');
+ return '<div class="card"><div class="row"><h3>Lote '+(i+1)+'</h3>'+(cur.lotes.length>1?'<button class="lnk" data-act="delLote" data-i="'+i+'">Quitar lote</button>':'')+'</div>'
+ +'<div class="g2">'+inp('Área sembrada','area',l.area,{t:'num',i:i})+sel('Unidad de área','areaU',AREAU,l.areaU,{i:i})+'</div>'
+ +'<div class="g2">'+inp('Fecha de siembra (aprox.)','siembra',l.siembra,{t:'date',i:i})+sel('Etapa actual','etapa',ETAPAS,l.etapa,{i:i})+'</div>'
+ +inp('Días de la siembra a la primera cosecha','ciclo',l.ciclo,{t:'num',i:i})
+ +'<div class="g2">'+inp('Meses que dura la cosecha','cosMeses',l.cosMeses,{t:'num',i:i})+inp('Cosechas por mes','cosMes',l.cosMes,{t:'num',i:i})+'</div>'
+ +inp('Cosechas en todo el ciclo (opcional, para cruzar)','cosTotal',l.cosTotal,{t:'num',i:i})
+ +'<div class="g2">'+sel('Unidad de venta','unidad',UNID,l.unidad,{i:i})
+ +inp(fijo?'Peso por unidad (kg), fijo':'Peso de 1 unidad (kg)','peso',fijo?(l.unidad==='kg'?'1':'1000'):l.peso,{t:'num',i:i,ro:fijo})+'</div>'
+ +inp('Unidades que saca por mes (todo el lote)','uMes',l.uMes,{t:'num',i:i})
+ +inp('Observaciones del lote','obs',l.obs,{i:i})
+ +'<div class="calc" id="calc-'+i+'"></div></div>';}
+
+function viewNuevo(){
+ var r=refOf(cur.cultivo);
+ var h='<div class="card"><h2>'+(cur._edit?'Editando un registro':'Nuevo levantamiento')+'</h2>'
+ +'<div class="hint">Sin nombres ni cédulas. Un registro es una consulta (una persona o fuente); puede tener varios lotes.</div>'
+ +'<div class="g2">'+inp('Fecha','fecha',cur.fecha,{t:'date'})+sel('Medio','medio',MEDIOS,cur.medio)+'</div>'
+ +'<div class="g2">'+sel('Quién informa','informante',INFORM,cur.informante)+sel('Confianza del dato','confianza',CONF,cur.confianza)+'</div>'
+ +inp('Vereda o zona','vereda',cur.vereda,{ph:'Ej.: vereda o corregimiento'})
+ +sel('Cultivo','cultivo',S.catalog.map(function(c){return c.n;}),cur.cultivo)
+ +(r?'<div class="hint">Referencia nacional: '+fmt(num(r.ref))+' t/ha. '+esc(r.nota||'')+'</div>':(cur.cultivo?'<div class="hint">Este cultivo no tiene referencia de rendimiento (se puede agregar en Ajustes).</div>':'<div class="hint">Si el cultivo no está en la lista, agréguelo en Ajustes.</div>'))
+ +'</div>';
+ cur.lotes.forEach(function(l,i){h+=loteHtml(l,i);});
+ h+='<button class="btn sec" data-act="addLote">+ Agregar otro lote</button>'
+ +'<div class="card">'+inp('Observaciones generales','obs',cur.obs,{ph:'Ej.: no se pudo validar en campo, zona sin acceso'})+'</div>'
+ +'<button class="btn" data-act="save">Guardar registro</button>'
+ +'<button class="btn sec" data-act="clear">Descartar formulario</button>';
+ document.getElementById('app').innerHTML=h;
+ cur.lotes.forEach(function(_,i){updCalc(i);});}
+
+function updCalc(i){
+ var el=document.getElementById('calc-'+i);if(!el)return;
+ var c=calc(cur.lotes[i],cur),h='';
+ h+=kv('Área',isFinite(c.ha)?fmt(c.ha,3)+' ha':'—');
+ h+=kv('Producción por mes',c.prodMes!=null?fmt(c.prodMes,0)+' kg':'—');
+ h+=kv('Producción del periodo de cosecha',c.prodT!=null?fmt(c.prodT,2)+' t':'—');
+ h+=kv('Rendimiento',c.rend!=null?fmt(c.rend,2)+' t/ha':'—');
+ h+=kv('Semestre de siembra',c.semSiembra||'—');
+ h+=kv('Cosecha (aprox.)',c.ini?dmy(c.ini)+' a '+dmy(c.fin):'—');
+ var ks=Object.keys(c.sem).sort();
+ if(ks.length)h+=kv('Producción por semestre',ks.map(function(k){return k+': '+fmt(c.sem[k],2)+' t';}).join(' · '));
+ c.flags.forEach(function(f){h+='<div class="warn">⚠ '+esc(f)+'</div>';});
+ c.info.forEach(function(f){h+='<div class="inf">'+esc(f)+'</div>';});
+ el.innerHTML=h;}
+
+/* registros */
+function viewReg(){
+ var rs=S.records.slice().sort(function(a,b){return (b.fecha||'').localeCompare(a.fecha||'')||(b.ts||'').localeCompare(a.ts||'');});
+ if(!rs.length){document.getElementById('app').innerHTML='<div class="card">Aún no hay registros.</div>';return;}
+ var h='';
+ rs.forEach(function(r){var ha=0,pt=0,fl=0;
+  r.lotes.forEach(function(l){var c=calc(l,r);if(c.ha>0)ha+=c.ha;if(c.prodT!=null)pt+=c.prodT;fl+=c.flags.length;});
+  h+='<div class="card"><div class="row"><h3>'+esc(r.cultivo)+'</h3><span class="small">'+esc(r.fecha)+'</span></div>'
+  +'<div class="small">'+esc(r.vereda||'sin vereda')+' · '+esc(r.medio||'sin medio')+' · confianza '+esc(r.confianza||'sin dato')+'</div>'
+  +kv('Lotes / área',r.lotes.length+' / '+fmt(ha,3)+' ha')+kv('Producción estimada',fmt(pt,2)+' t')
+  +(fl?'<div class="warn">⚠ '+fl+' alerta(s) en este registro</div>':'')
+  +'<div class="g2"><button class="btn sec" data-act="edit" data-id="'+r.id+'">Editar</button><button class="btn sec" data-act="del" data-id="'+r.id+'">Eliminar</button></div></div>';});
+ document.getElementById('app').innerHTML=h;}
+
+/* resumen */
+function viewRes(){
+ var agg={};
+ S.records.forEach(function(r){if(!r.cultivo)return;
+  var A=agg[r.cultivo]=agg[r.cultivo]||{n:0,ent:0,ha:0,prodT:0,haP:0,sb:{},co:{},conf:{Alta:0,Media:0,Baja:0,'Sin dato':0}};
+  A.ent++;
+  r.lotes.forEach(function(l){var c=calc(l,r);A.n++;A.conf[r.confianza||'Sin dato']++;
+   if(c.ha>0){A.ha+=c.ha;if(c.semSiembra)A.sb[c.semSiembra]=(A.sb[c.semSiembra]||0)+c.ha;}
+   if(PRECOSECHA.indexOf(l.etapa)>=0){A.pre=(A.pre||0)+1;return;}
+   if(c.prodT!=null&&c.ha>0){A.prodT+=c.prodT;A.haP+=c.ha;}
+   Object.keys(c.sem).forEach(function(k){A.co[k]=(A.co[k]||0)+c.sem[k];});});});
+ var ks=Object.keys(agg);
+ if(!ks.length){document.getElementById('app').innerHTML='<div class="card">Sin datos para resumir.</div>';return;}
+ var h='<div class="card small">Esto suma <b>solo la muestra que usted consultó</b>. No es el total del municipio: no lo reporte como área municipal sin cruzarlo con otras fuentes.</div>';
+ ks.forEach(function(k){var A=agg[k];
+  var sems=Object.keys(Object.assign({},A.sb,A.co)).sort();
+  h+='<div class="card"><h2>'+esc(k)+'</h2>'
+  +kv('Registros / lotes',A.ent+' / '+A.n)+kv('Área de la muestra',fmt(A.ha,3)+' ha')
+  +kv('Rendimiento de la muestra',A.haP>0?fmt(A.prodT/A.haP,2)+' t/ha':'—')
+  +(A.pre?'<div class="inf">'+A.pre+' lote(s) aún sin cosechar: cuentan en área sembrada, pero no en producción ni rendimiento.</div>':'')
+  +kv('Confianza (lotes)','Alta '+A.conf.Alta+' · Media '+A.conf.Media+' · Baja '+A.conf.Baja+' · Sin dato '+A.conf['Sin dato'])
+  +'<table><tr><th>Semestre</th><th>Área sembrada (ha)</th><th>Producción (t)</th></tr>';
+  sems.forEach(function(s){h+='<tr><td>'+s+'</td><td>'+fmt(A.sb[s]||0,3)+'</td><td>'+fmt(A.co[s]||0,2)+'</td></tr>';});
+  h+='</table><div class="hint">Área sembrada se asigna por semestre de siembra; producción, por semestre de cosecha (asignación mensual aproximada).</div></div>';});
+ document.getElementById('app').innerHTML=h;}
+
+/* ajustes */
+function viewAju(){
+ var st=S.settings,h='<div class="card"><h2>Ajustes</h2>'
+ +'<label class="f"><span>Municipio</span><input data-s="municipio" value="'+esc(st.municipio)+'"></label>'
+ +'<label class="f"><span>Nombre del técnico (opcional)</span><input data-s="tecnico" value="'+esc(st.tecnico)+'"></label>'
+ +'<div class="g2"><label class="f"><span>Tolerancia de alerta (±%)</span><input inputmode="decimal" data-s="tol" value="'+esc(st.tol)+'"></label>'
+ +'<label class="f"><span>1 cuadra = m²</span><input inputmode="decimal" data-s="cuadra" value="'+esc(st.cuadra)+'"></label></div>'
+ +'<div class="hint">El valor de la cuadra es un supuesto (6.400 m²). Confírmelo con la UMATA: varía por región.</div></div>'
+ +'<div class="card"><h2>Cultivos y referencia de rendimiento</h2>';
+ S.catalog.forEach(function(c,i){
+  h+='<div class="card" style="box-shadow:none;border:1px solid #dde"><div class="row"><b>'+esc(c.n)+'</b><button class="lnk" data-act="delCat" data-i="'+i+'">Quitar</button></div>'
+  +'<label class="f"><span>Referencia t/ha (vacío si no hay)</span><input inputmode="decimal" data-cat="'+i+'" data-ck="ref" value="'+esc(c.ref)+'"></label>'
+  +'<label class="f"><span>Nota de la referencia</span><input data-cat="'+i+'" data-ck="nota" value="'+esc(c.nota||'')+'"></label></div>';});
+ h+='<div class="g2"><label class="f"><span>Nuevo cultivo</span><input id="nc-n"></label><label class="f"><span>Ref. t/ha</span><input id="nc-r" inputmode="decimal"></label></div>'
+ +'<button class="btn sec" data-act="addCat">Agregar cultivo</button></div>'
+ +'<div class="card"><h2>Datos</h2><div class="hint">Exporte con frecuencia: es su respaldo si se borra el navegador.</div>'
+ +'<button class="btn" data-act="csv">Exportar a Excel (CSV)</button>'
+ +'<button class="btn sec" data-act="json">Respaldo completo (JSON)</button>'
+ +'<button class="btn sec" data-act="imp">Importar respaldo (JSON)</button>'
+ +'<button class="btn red" data-act="wipe">Borrar todos los datos</button></div>'
+ +'<div class="card small"><h2>Uso sin señal</h2>Abra esta página una vez con conexión, luego instálela: en Android (Chrome) menú ⋮ → «Instalar aplicación»; en iPhone (Safari) Compartir → «Agregar a pantalla de inicio». Después funciona sin internet. Si usted solo abre el archivo desde el almacenamiento del teléfono, el guardado no está garantizado: exporte después de cada jornada.</div>';
+ document.getElementById('app').innerHTML=h;}
+
+/* exportación */
+function cell(v){if(v==null)return '';
+ if(typeof v==='number')return isFinite(v)?String(Math.round(v*1000)/1000).replace('.',','):'';
+ v=String(v);return /[;"\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
+function csvText(){
+ var H=['id','fecha','municipio','vereda','medio','informante','confianza','cultivo','lote','area_ha','area_ingresada','unidad_area','fecha_siembra','semestre_siembra','etapa','dias_a_primera_cosecha','meses_de_cosecha','cosechas_por_mes','cosechas_ciclo','unidad_venta','unidades_por_mes','peso_unidad_kg','prod_mes_kg','prod_periodo_t','rendimiento_t_ha','inicio_cosecha','fin_cosecha','prod_t_por_semestre','alertas','obs_lote','obs_registro','tecnico'];
+ var R=[H];
+ S.records.forEach(function(r){r.lotes.forEach(function(l,j){var c=calc(l,r);
+  var sem=Object.keys(c.sem).sort().map(function(k){return k+':'+String(Math.round(c.sem[k]*1000)/1000).replace('.',',');}).join(' | ');
+  R.push([r.id,r.fecha,S.settings.municipio,r.vereda,r.medio,r.informante,r.confianza,r.cultivo,j+1,c.ha,num(l.area),l.areaU,l.siembra,c.semSiembra||'',l.etapa,num(l.ciclo),num(l.cosMeses),num(l.cosMes),num(l.cosTotal),l.unidad,num(l.uMes),pesoKg(l),c.prodMes,c.prodT,c.rend,c.ini?iso(c.ini):'',c.fin?iso(c.fin):'',sem,c.flags.join(' | '),l.obs,r.obs,S.settings.tecnico]);});});
+ return '\ufeff'+R.map(function(r){return r.map(cell).join(';');}).join('\r\n');}
+function out(name,text,mime){
+ var blob=new Blob([text],{type:mime});var file=null;
+ try{file=new File([blob],name,{type:mime});}catch(e){}
+ var done=function(){S.lastExport=new Date().toISOString();save();toast('Archivo generado');};
+ if(file&&navigator.canShare&&navigator.canShare({files:[file]})){
+  navigator.share({files:[file],title:name}).then(done).catch(function(e){if(e&&e.name!=='AbortError')dl(blob,name,done);});return;}
+ dl(blob,name,done);}
+function dl(blob,name,done){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();
+ setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1500);done();}
+function stamp(){return iso(new Date());}
+
+/* acciones */
+function toast(m){var t=document.getElementById('toast');t.textContent=m;t.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(function(){t.style.display='none';},2600);}
+function go(v){view=v;
+ [].forEach.call(document.querySelectorAll('nav button'),function(b){b.classList.toggle('on',b.dataset.v===v);});
+ ({nuevo:viewNuevo,reg:viewReg,res:viewRes,aju:viewAju})[v]();window.scrollTo(0,0);}
+function saveRec(){
+ if(!cur.cultivo){toast('Falta el cultivo');return;}
+ if(!cur.fecha){toast('Falta la fecha');return;}
+ if(!cur.lotes.some(function(l){return areaHa(l)>0;})){toast('Ingrese el área de al menos un lote');return;}
+ var r=clone(cur);delete r._edit;r.ts=new Date().toISOString();
+ var k=S.records.findIndex(function(x){return x.id===r.id;});
+ if(k>=0)S.records[k]=r;else S.records.push(r);
+ var fl=0;r.lotes.forEach(function(l){fl+=calc(l,r).flags.length;});
+ save();cur=newRec(r);saveDraft();
+ toast('Guardado'+(fl?' ('+fl+' alerta(s) por revisar en Registros)':''));
+ viewNuevo();window.scrollTo(0,0);}
+
+document.addEventListener('click',function(e){
+ var t=e.target.closest('[data-act]');if(!t)return;var a=t.dataset.act,i=t.dataset.i,id=t.dataset.id;
+ if(a==='tab')go(t.dataset.v);
+ else if(a==='addLote'){cur.lotes.push(newLote(cur.cultivo));saveDraft();viewNuevo();}
+ else if(a==='delLote'){if(confirm('¿Quitar este lote?')){cur.lotes.splice(+i,1);saveDraft();viewNuevo();}}
+ else if(a==='save')saveRec();
+ else if(a==='clear'){if(confirm('¿Descartar este formulario?')){cur=newRec();saveDraft();viewNuevo();}}
+ else if(a==='edit'){var r=S.records.filter(function(x){return x.id===id;})[0];if(r){cur=clone(r);cur._edit=true;saveDraft();go('nuevo');}}
+ else if(a==='del'){if(confirm('¿Eliminar este registro?')){S.records=S.records.filter(function(x){return x.id!==id;});save();viewReg();}}
+ else if(a==='csv'){if(!S.records.length){toast('No hay registros');return;}out('eva_captura_'+stamp()+'.csv',csvText(),'text/csv');}
+ else if(a==='json'){out('eva_respaldo_'+stamp()+'.json',JSON.stringify({v:1,exportado:new Date().toISOString(),records:S.records,catalog:S.catalog,settings:S.settings}),'application/json');}
+ else if(a==='imp')document.getElementById('imp').click();
+ else if(a==='addCat'){var n=document.getElementById('nc-n').value.trim(),rf=document.getElementById('nc-r').value;
+  if(!n){toast('Escriba el nombre');return;}
+  if(S.catalog.some(function(c){return c.n.toLowerCase()===n.toLowerCase();})){toast('Ya existe');return;}
+  S.catalog.push({n:n,ref:isFinite(num(rf))?num(rf):'',nota:''});save();viewAju();}
+ else if(a==='delCat'){if(confirm('¿Quitar este cultivo de la lista? Los registros existentes se conservan.')){S.catalog.splice(+i,1);save();viewAju();}}
+ else if(a==='wipe'){if(confirm('Se borrarán TODOS los registros de este dispositivo. ¿Continuar?')&&confirm('Última confirmación: ¿ya exportó un respaldo?')){S.records=[];S.lastExport=null;save();cur=newRec();saveDraft();viewAju();toast('Datos borrados');}}
+});
+
+document.addEventListener('input',function(e){
+ var t=e.target;
+ if(t.dataset.s){S.settings[t.dataset.s]=t.value;save();return;}
+ if(t.dataset.cat!=null){S.catalog[+t.dataset.cat][t.dataset.ck]=(t.dataset.ck==='ref'&&isFinite(num(t.value)))?num(t.value):t.value;save();return;}
+ var k=t.dataset.k;if(!k)return;
+ var i=t.dataset.i;
+ if(i!=null)cur.lotes[+i][k]=t.value;else cur[k]=t.value;
+ saveDraft();
+ if(k==='cultivo'||k==='unidad'){if(k==='cultivo'&&cur.lotes.length===1&&!num(cur.lotes[0].area))cur.lotes[0].unidad=newLote(cur.cultivo).unidad;viewNuevo();}
+ else if(i!=null)updCalc(+i);
+});
+
+document.getElementById('imp').addEventListener('change',function(e){
+ var f=e.target.files[0];if(!f)return;var rd=new FileReader();
+ rd.onload=function(){try{var o=JSON.parse(rd.result),n=0;
+  (o.records||[]).forEach(function(r){if(!S.records.some(function(x){return x.id===r.id;})){S.records.push(r);n++;}});
+  (o.catalog||[]).forEach(function(c){if(!S.catalog.some(function(x){return x.n===c.n;}))S.catalog.push(c);});
+  save();toast(n+' registro(s) importados');if(view==='aju')viewAju();}catch(x){toast('Archivo no válido');}};
+ rd.readAsText(f);e.target.value='';});
+
+if(navigator.storage&&navigator.storage.persist){try{navigator.storage.persist();}catch(e){}}
+if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)){navigator.serviceWorker.register('sw.js').catch(function(){});}
+banner();go('nuevo');
+window.__eva={S:function(){return S;},calc:calc,csvText:csvText,cur:function(){return cur;}};
+})();
+</script>
+</body>
+</html>
+
+// Cache para uso sin conexión. Si publica una versión nueva de index.html, cambie el número de CACHE.
+var CACHE='eva-captura-v1';
+var ARCHIVOS=['./','index.html','manifest.json','icon-192.png','icon-512.png'];
+self.addEventListener('install',function(e){
+  e.waitUntil(caches.open(CACHE).then(function(c){return c.addAll(ARCHIVOS);}).then(function(){return self.skipWaiting();}));
+});
+self.addEventListener('activate',function(e){
+  e.waitUntil(caches.keys().then(function(ks){
+    return Promise.all(ks.filter(function(k){return k!==CACHE;}).map(function(k){return caches.delete(k);}));
+  }).then(function(){return self.clients.claim();}));
+});
+self.addEventListener('fetch',function(e){
+  e.respondWith(caches.match(e.request).then(function(r){return r||fetch(e.request);}));
+});
+
+{
+  "name": "Captura EVA",
+  "short_name": "Captura EVA",
+  "description": "Levantamiento de información de cultivos sin conexión",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#2e6b34",
+  "theme_color": "#2e6b34",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}
